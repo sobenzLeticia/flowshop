@@ -1,0 +1,102 @@
+#  Importando bibliotecas necessárias:
+import random        
+import copy          
+import time            
+from scheptk.scheptk import FlowShop  
+
+# Carregando os dados da instância do problema (jobs e máquinas)
+instance = FlowShop('P14.txt')
+num_jobs, num_maquinas = instance.jobs, instance.machines
+
+# Cria uma solução inicial simples: ordem crescente dos jobs (0, 1, 2, ..., n-1)
+def solucao_inicial(n):
+    return list(range(n))
+
+# Remove aleatoriamente 'n' jobs da solução atual
+def destruicao(solucao, n=3):
+    restante = copy.deepcopy(solucao)             # copia a lista original para não alterar
+    removidos = random.sample(restante, n)        # escolhe aleatoriamente 'n' jobs
+    restante.remove(job for job in removidos)                      # remove cada job escolhido da solução
+    return restante, removidos                    # retorna a solução parcial e os jobs removidos
+
+# Insere novamente os jobs removidos, procurando as melhores posições (menor makespan)
+def reconstrucao(sol, rem, inst):
+    for job in rem:
+        melhor_pos = 0
+        melhor_mk = float("inf")
+        for i in range(len(sol) + 1):             # tenta inserir o job em todas as posições possíveis
+            nova_sol = sol[:i] + [job] + sol[i:]  # monta uma nova solução com o job inserido na posição i
+            mk = inst.Cmax(nova_sol)              # calcula o makespan dessa nova sequência
+            if mk < melhor_mk:
+                melhor_mk = mk
+                melhor_pos = i
+        sol = sol[:melhor_pos] + [job] + sol[melhor_pos:]  # insere o job na melhor posição encontrada
+    return sol
+
+# Função principal que executa o Iterated Greedy
+def iterated_greedy(inst, n_jobs, tempo_limite):
+    ini = time.time()                                  # marca o tempo de início
+    sol_atual = solucao_inicial(n_jobs)                # gera a solução inicial
+    mk_atual = inst.Cmax(sol_atual)                    # calcula o makespan dessa solução
+
+    melhor_sol = sol_atual[:]                          # guarda a melhor solução encontrada até agora
+    melhor_mk = mk_atual                               # e o melhor makespan também
+
+    visitadas = {tuple(sol_atual)}                     # guarda as soluções já testadas (em formato de tupla)
+    sem_melhora = 0                                    # contador de iterações sem melhoria
+    limite_sem_melhora = 50                            # se atingir esse número, o algoritmo reinicia
+    n_destruicao = 3                                   # número inicial de jobs a remover por vez
+
+    # Loop que roda até acabar o tempo
+    while time.time() - ini < tempo_limite:
+        # Remove alguns jobs da solução
+        parcial, removidos = destruicao(sol_atual, n=n_destruicao)
+
+        # Reconstrói a solução tentando melhorar
+        nova_sol = reconstrucao(parcial, removidos, inst)
+        nova_tupla = tuple(nova_sol)
+
+        # Se essa nova solução ainda não foi testada
+        if nova_tupla not in visitadas:
+            visitadas.add(nova_tupla)
+            novo_mk = inst.Cmax(nova_sol)
+
+            # Se melhorou a solução atual
+            if novo_mk < mk_atual:
+                sol_atual = nova_sol
+                mk_atual = novo_mk
+                sem_melhora = 0
+            else:
+                sem_melhora += 1
+
+            # Se for a melhor solução até agora
+            if novo_mk < melhor_mk:
+                melhor_sol = nova_sol[:]
+                melhor_mk = novo_mk
+                print(f"Melhor makespan até agora: {melhor_mk}")
+        else:
+            sem_melhora += 1
+
+        # Se estiver estagnado há muito tempo, reinicia
+        if sem_melhora >= limite_sem_melhora:
+            print(f"\n[!] Estagnado após {sem_melhora} iterações. Reinicializando...\n")
+            sol_atual = random.sample(range(n_jobs), n_jobs)  # nova solução aleatória
+            mk_atual = inst.Cmax(sol_atual)
+            visitadas.add(tuple(sol_atual))
+            sem_melhora = 0
+            n_destruicao = min(n_jobs // 2, n_destruicao + 1)  # aumenta a destruição para tentar escapar do local ótimo
+
+    return melhor_sol, melhor_mk  # retorna a melhor sequência encontrada
+
+# --- Execução final do programa ---
+print(f"Jobs: {num_jobs}, Máquinas: {num_maquinas}")
+
+# Roda o algoritmo por 60 segundos
+melhor_solucao, melhor_makespan = iterated_greedy(instance, num_jobs, tempo_limite=60)
+
+# Mostra a melhor sequência encontrada
+print("\nMelhor sequência encontrada:", melhor_solucao)
+print("Makespan da melhor sequência:", melhor_makespan)
+
+# Imprime o gráfico do cronograma da solução
+instance.print_schedule(melhor_solucao)
